@@ -1,18 +1,43 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Super An Bros.">
+<meta name="theme-color" content="#1d1528">
 <title>Super An Bros.</title>
 <style>
-html,body{margin:0;height:100%;background:#1d1528;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
-body{display:flex;align-items:center;justify-content:center}
+html,body{margin:0;height:100%;background:#1d1528;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+body{position:fixed;inset:0;height:100dvh;display:flex;align-items:center;justify-content:center}
 canvas{image-rendering:pixelated;background:#000}
-#pad{display:none;position:fixed;left:0;right:0;bottom:14px;padding:0 16px;justify-content:space-between;pointer-events:none}
-#pad div{pointer-events:auto;width:74px;height:74px;border-radius:50%;background:#ffffff33;border:3px solid #ffffff88;color:#fff;font:700 26px monospace;display:flex;align-items:center;justify-content:center}
-#pad .g{display:flex;gap:12px}
-@media (pointer:coarse){#pad{display:flex}}
+
+/* touch controls: sized from the smaller screen side, kept clear of notch / home bar */
+:root{--sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);--sb:env(safe-area-inset-bottom,0px);--st:env(safe-area-inset-top,0px);
+  --b:clamp(58px,15vmin,108px);--g:clamp(8px,2.2vmin,22px);--e:clamp(12px,3.2vmin,34px)}
+#pad{display:none;position:fixed;inset:0;z-index:5;touch-action:none}
+#pad>div{position:absolute;display:flex;align-items:center;justify-content:center;pointer-events:none;box-sizing:border-box;border-radius:30%;
+  background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.38);color:rgba(255,255,255,.85);transition:background .06s,transform .06s}
+#pad>div.on{background:rgba(255,255,255,.42);transform:scale(.94)}
+#pad svg{width:42%;height:42%;display:block}
+#bl{width:var(--b);height:var(--b);left:calc(var(--sl) + var(--e));bottom:calc(var(--sb) + var(--e))}
+#br{width:var(--b);height:var(--b);left:calc(var(--sl) + var(--e) + var(--b) + var(--g));bottom:calc(var(--sb) + var(--e))}
+#bj{width:calc(var(--b)*1.3);height:calc(var(--b)*1.3);border-radius:50%;right:calc(var(--sr) + var(--e));bottom:calc(var(--sb) + var(--e))}
+#bs{width:calc(var(--b)*.78);height:calc(var(--b)*.78);border-radius:50%;right:calc(var(--sr) + var(--e) + var(--b)*1.3 + var(--g));bottom:calc(var(--sb) + var(--e))}
+#bp{width:clamp(36px,8vmin,54px);height:clamp(36px,8vmin,54px);border-radius:50%;top:calc(var(--st) + var(--e));right:calc(var(--sr) + var(--e));opacity:.8}
+#bp svg{width:38%;height:38%}
+#rot{display:none;position:fixed;inset:0;z-index:10;background:#1d1528;color:#fff;font:700 20px "Courier New",monospace;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center}
+@media (pointer:coarse) and (orientation:portrait){#rot{display:flex}}
 </style></head><body>
 <canvas id="c"></canvas>
-<div id="pad"><div class="g"><div id="bl">&#9664;</div><div id="br">&#9654;</div></div><div id="bj">&#9650;</div></div>
+<div id="pad">
+  <div id="bl"><svg viewBox="0 0 24 24"><path d="M16 4 6 12l10 8z" fill="currentColor"/></svg></div>
+  <div id="br"><svg viewBox="0 0 24 24"><path d="M8 4l10 8-10 8z" fill="currentColor"/></svg></div>
+  <div id="bs"><svg viewBox="0 0 24 24"><path d="M3 5l7 7-7 7zM13 5l7 7-7 7z" fill="currentColor"/></svg></div>
+  <div id="bj"><svg viewBox="0 0 24 24"><path d="M12 4l9 15H3z" fill="currentColor"/></svg></div>
+  <div id="bp"><svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" fill="currentColor"/></svg></div>
+</div>
+<div id="rot"><div style="font-size:52px">&#8635;</div>Rotate your device<div style="font-size:14px;opacity:.7">landscape works best</div></div>
 <script>
 /* =====================  EDIT ME  =====================
    Sprites: drop PNGs with the SAME FILENAMES into assets/sprites/ (e.g. walk_0.png).
@@ -56,8 +81,14 @@ const CONFIG = {
 const TS = 32, LW = 150, LH = 16, W = 960, H = 512;
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 cv.width = W; cv.height = H;
+const COARSE = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in window;
+const IPHONE = /iPhone|iPod/.test(navigator.userAgent);
+const away = () => COARSE && innerHeight > innerWidth;   // portrait on a touch device: game waits behind the rotate screen
 const fit = () => { const s = Math.min(innerWidth / W, innerHeight / H); cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px'; };
-addEventListener('resize', fit); fit();
+['resize', 'orientationchange', 'fullscreenchange', 'webkitfullscreenchange'].forEach(ev => addEventListener(ev, fit));
+if (window.visualViewport) visualViewport.addEventListener('resize', fit);
+addEventListener('gesturestart', e => e.preventDefault());
+fit();
 
 /* ---------- sprites ---------- */
 const rng = (p, n) => Array.from({ length: n }, (_, i) => p + '_' + i);
@@ -146,7 +177,7 @@ function init() {
 function spawnP() { P = { x: spawn.x, y: spawn.y, vx: 0, vy: 0, w: 22, h: 50, on: false, face: 1, dead: 0, nap: 0, caf: 0, big: false, inv: 120, jumping: false }; cam = Math.max(0, P.x - W * .4); msg = ''; }
 const K = { l: 0, r: 0, j: 0, s: 0 };
 function jumpPress() { jumpBuf = 7; }
-function act() { if (st === 'title') { st = 'play'; init(); unlockMusic(); play('start'); } else if (st === 'win' && winT > 300) { st = 'play'; init(); play('start'); } }
+function act() { if (st === 'title') { st = 'play'; init(); unlockMusic(); play('start'); wantFull = true; } else if (st === 'win' && winT > 300) { st = 'play'; init(); play('start'); wantFull = true; } }
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (['arrowleft', 'arrowright', 'arrowup', ' '].includes(k)) e.preventDefault();
@@ -165,8 +196,51 @@ addEventListener('keyup', e => {
 });
 addEventListener('blur', () => { K.l = K.r = K.j = K.s = 0; });
 cv.addEventListener('pointerdown', act);
-const hold = (id, f, d) => { const b = document.getElementById(id); b.addEventListener('pointerdown', e => { e.preventDefault(); d(); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, f)); };
-hold('bl', () => K.l = 0, () => K.l = 1); hold('br', () => K.r = 0, () => K.r = 1); hold('bj', () => K.j = 0, () => { K.j = 1; jumpPress(); });
+/* ---------- touch controls ---------- */
+const pad = document.getElementById('pad');
+const BT = { l: document.getElementById('bl'), r: document.getElementById('br'), j: document.getElementById('bj'), s: document.getElementById('bs'), p: document.getElementById('bp') };
+const touches = new Map();   // pointerId -> button key; every finger is tracked on its own, so you can hold + jump + slide freely
+function btnAt(x, y) {       // nearest button under the finger, with a forgiving margin around each one
+  let best = null, bd = 1e9;
+  for (const k in BT) {
+    const r = BT[k].getBoundingClientRect(), m = Math.min(r.width, r.height) * .22;
+    if (x < r.left - m || x > r.right + m || y < r.top - m || y > r.bottom + m) continue;
+    const d = Math.hypot(x - (r.left + r.right) / 2, y - (r.top + r.bottom) / 2);
+    if (d < bd) { bd = d; best = k; }
+  }
+  return best;
+}
+function paintPad() { const on = new Set(touches.values()); for (const k in BT) BT[k].classList.toggle('on', on.has(k)); }
+function setTouch(id, k, fresh) {
+  const old = touches.get(id) || null; k = k || null;
+  if (old === k) return;
+  if (k) touches.set(id, k); else touches.delete(id);
+  const held = new Set(touches.values());
+  for (const q of ['l', 'r', 'j', 's']) if (q === old || q === k) { const was = K[q]; K[q] = held.has(q) ? 1 : 0; if (q === 'j' && K.j && !was) jumpPress(); }
+  if (k === 'p' && fresh && st === 'play') { paused = !paused; play('pause'); }   // pause only on a deliberate tap, not a slide
+  paintPad();
+}
+pad.addEventListener('pointerdown', e => { e.preventDefault(); try { pad.setPointerCapture(e.pointerId); } catch (_) {} setTouch(e.pointerId, btnAt(e.clientX, e.clientY), true); });
+pad.addEventListener('pointermove', e => { if (touches.has(e.pointerId) || e.buttons) setTouch(e.pointerId, btnAt(e.clientX, e.clientY), false); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => pad.addEventListener(ev, e => setTouch(e.pointerId, null, false)));
+pad.addEventListener('contextmenu', e => e.preventDefault());
+let padOn = false;
+function syncPad() {         // controls only exist while playing; tap-to-start / tap-to-restart stay on the canvas
+  const show = COARSE && st === 'play';
+  if (show === padOn) return; padOn = show;
+  pad.style.display = show ? 'block' : 'none';
+  if (!show) { touches.clear(); K.l = K.r = K.j = K.s = 0; paintPad(); }
+}
+
+/* ---------- fullscreen (iPad / Android; iPhone Safari doesn't allow it, so use Add to Home Screen) ---------- */
+let wantFull = false;
+function goFull() {
+  if (!COARSE || document.fullscreenElement || document.webkitFullscreenElement) return;
+  const e = document.documentElement, f = e.requestFullscreen || e.webkitRequestFullscreen;
+  if (!f) return;
+  try { const p = f.call(e, { navigationUI: 'hide' }); if (p && p.then) p.then(() => { try { screen.orientation.lock('landscape').catch(() => {}); } catch (_) {} }).catch(() => {}); } catch (_) {}
+}
+['pointerup', 'touchend'].forEach(ev => document.addEventListener(ev, () => { if (wantFull) { wantFull = false; goFull(); } }));
 
 /* ---------- physics ---------- */
 function box(o) {
@@ -206,7 +280,7 @@ function setH(nh) {
 }
 
 function update() {
-  if (paused && st === 'play') return;
+  if ((paused || away()) && st === 'play') return;
   T++; if (jumpBuf > 0) jumpBuf--;
   if (st === 'win') { winT++; return; }
   if (st !== 'play') return;
@@ -351,7 +425,7 @@ function draw() {
     text(CONFIG.title, W / 2, 150, 54, '#fff'); text(CONFIG.subtitle, W / 2, 190, 22, '#ffe9b8');
     if (!sprite('coffee_0', W / 2, 400, 0)) sprite('idle_0', W / 2, 400, 0);
     if ((T / 30 | 0) % 2) text('Press Enter / tap to start', W / 2, 460, 20, '#fff');
-    text('Arrows/WASD move, Space jump, Shift sprint, P pause, M mute', W / 2, 490, 14, '#fff');
+    text(COARSE ? (IPHONE && !navigator.standalone ? 'Tip: Share > Add to Home Screen for true fullscreen' : '') : 'Arrows/WASD move, Space jump, Shift sprint, P pause, M mute', W / 2, 490, 14, '#fff');
     return;
   }
   const cx = st === 'win' ? LW * TS - W : cam;
@@ -382,6 +456,7 @@ let last = 0, acc = 0;
 function frame(ts) {
   acc += Math.min(100, ts - last); last = ts;
   while (acc >= 1000 / 60) { update(); acc -= 1000 / 60; }
+  syncPad();
   draw();
   if (paused && st === 'play') { ctx.fillStyle = '#0008'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, H / 2, 48); }
   requestAnimationFrame(frame);

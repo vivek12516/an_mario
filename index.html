@@ -34,7 +34,7 @@ const CONFIG = {
     power:  ['iosa.mp3'],           // grabbing the coffee
     crash:  ['puke.mp3'],           // coffee wears off -> falls asleep
     wake:   ['wake.mp3'],            // wakes up from the nap
-    bump:   ['bump.mp3'],            // head hits a brick / used block
+    bump:   ['bump.mp3'],            // head hits a brick / used block (also: giant form knocked back to small)
     stomp:  ['yawa.mp3'],           // squishing a book
     die:    ['idklmao.mp3'],             // hit by a book
     pit:    ['scream.mp3'],             // fell into a nap trap
@@ -141,7 +141,9 @@ function init() {
   books = [15, 30, 37, 53, 58, 72, 78, 95, 98, 112, 124].map(x => ({ x: x * TS, y: 14 * TS - 25, w: 28, h: 24, vx: -.8, vy: 0, dead: 0 }));
   spawn = { x: 2 * TS, y: 14 * TS - 52 }; beans = 0; flw = 0; deaths = 0; spawnP();
 }
-function spawnP() { P = { x: spawn.x, y: spawn.y, vx: 0, vy: 0, w: 22, h: 50, on: false, face: 1, dead: 0, nap: 0, caf: 0, jumping: false }; cam = Math.max(0, P.x - W * .4); msg = ''; }
+/* big = bigger coffee sprite (shield: one mob hit shrinks you back); caf = caffeine meter (speed/jump + crash timer), independent of big;
+   inv = invincibility frames (after respawn and after being hit while big) */
+function spawnP() { P = { x: spawn.x, y: spawn.y, vx: 0, vy: 0, w: 22, h: 50, on: false, face: 1, dead: 0, nap: 0, caf: 0, big: false, inv: 120, jumping: false }; cam = Math.max(0, P.x - W * .4); msg = ''; }
 const K = { l: 0, r: 0, j: 0, s: 0 };
 function jumpPress() { jumpBuf = 7; }
 function act() { if (st === 'title') { st = 'play'; init(); unlockMusic(); play('start'); } else if (st === 'win' && winT > 300) { st = 'play'; init(); play('start'); } }
@@ -185,8 +187,22 @@ const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a
 const pick = a => a[Math.random() * a.length | 0];
 function die(pit) {
   if (P.dead) return;
-  P.dead = 100; P.vy = -9; P.vx = 0; P.caf = 0; P.nap = 0; deaths++;
+  P.dead = 100; P.vy = -9; P.vx = 0; P.caf = 0; P.nap = 0; P.big = false; P.inv = 0; deaths++;
   msg = pick(pit ? CONFIG.pitDeaths : CONFIG.deaths); play(pit ? 'pit' : 'die');
+}
+
+/* hitbox follows the drawn sprite: drawn height of a frame, and a resize that keeps the feet planted */
+function sprH(n) { return has(n) ? IM[n].i.naturalHeight * scl() : 50; }
+const HB = 0.85; // big hitbox height as a fraction of the drawn coffee sprite (lower = more forgiving)
+function setH(nh) {
+  nh = Math.round(nh);
+  if (nh === P.h) return;
+  const ny = P.y + P.h - nh;
+  if (nh > P.h) {                       // growing: don't grow into a ceiling
+    const x0 = Math.floor(P.x / TS), x1 = Math.floor((P.x + P.w - .01) / TS), y0 = Math.floor(ny / TS), y1 = Math.floor((P.y + P.h - .01) / TS);
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) if (solid(tx, ty)) return;
+  }
+  P.y = ny; P.h = nh;
 }
 
 function update() {
@@ -199,6 +215,7 @@ function update() {
     if (!P.dead) spawnP();
     return;
   }
+  if (P.inv > 0) P.inv--;
   const caf = P.caf > 0, maxv = caf ? 5.4 : K.s ? 5 : 3.9;
   if (P.nap > 0) { P.nap--; P.vx *= .8; if (!P.nap) play('wake'); }
   else {
@@ -211,18 +228,22 @@ function update() {
     if (!K.j && P.jumping && P.vy < -4) P.vy = -4;
   }
   P.vy = Math.min(P.vy + .55, 13);
+  setH(P.big && has('coffee_0') ? sprH('coffee_0') * HB : 50);
   box(P);
   if (P.on) P.jumping = false;
   if (P.bump) {
     const [tx, ty] = P.bump;
     if (G[ty][tx] === 3) { G[ty][tx] = 4; items.push({ x: tx * TS + 4, y: (ty - 1) * TS + 4, w: 24, h: 24, got: false }); play('item'); } else if (G[ty][tx] > 0) play('bump');
   }
-  if (P.caf > 0 && --P.caf === 0) { P.nap = 110; play('crash'); }
+  if (P.caf > 0 && --P.caf === 0) { P.nap = 110; P.big = false; play('crash'); }
   anim += Math.abs(P.vx) * .09;
   cam = Math.max(0, Math.min(LW * TS - W, P.x - W * .4));
   if (P.y > LH * TS + 60) return die(true);
-  coins.forEach(c => { if (!c.got && hit(P, { x: c.x, y: c.y, w: 24, h: 24 })) { c.got = true; beans++; play('coin'); } });
-  items.forEach(c => { if (!c.got && hit(P, c)) { c.got = true; P.caf = 480; P.nap = 0; play('power'); } });
+  /* bean pickup box matches the drawn sprite (+ a little arm reach), so beans the sprite visually touches count */
+  const REACH = 10, dh = Math.max(P.h, sprH(pFrame()));
+  const pb = { x: P.x - 8, y: P.y + P.h - dh - REACH, w: P.w + 16, h: dh + REACH };
+  coins.forEach(c => { if (!c.got && hit(pb, { x: c.x, y: c.y, w: 24, h: 24 })) { c.got = true; beans++; play('coin'); } });
+  items.forEach(c => { if (!c.got && hit(P, c)) { c.got = true; P.caf = 480; P.nap = 0; P.big = true; play('power'); } });
   flws.forEach(f => { if (!f.got && hit(P, { x: f.x, y: f.y, w: 28, h: 38 })) { f.got = true; flw++; spawn = { x: f.x, y: 14 * TS - 52 }; play('flower'); } });
   books.forEach(b => {
     if (b.gone) return;
@@ -233,7 +254,10 @@ function update() {
     box(b); if (b.hitX) b.vx = -b.vx;
     if (b.y > 700) b.gone = true;
     if (!P.dead && hit(P, b)) {
-      if (P.vy > 0 && P.y + P.h - b.y < 22) { b.dead = 28; P.vy = -8; P.jumping = false; play('stomp'); } else die(false);
+      if (P.vy > 0 && P.y + P.h - b.y < 22) { b.dead = 28; P.vy = -8; P.jumping = false; play('stomp'); }   // stomp always works
+      else if (P.inv > 0) { /* invincible: walk through */ }
+      else if (P.big) { P.big = false; P.inv = 90; P.vy = -6; P.vx = -P.face * 4; play('bump'); }          // shrink, caffeine meter untouched
+      else die(false);
     }
   });
   if (P.x > BED_X + 10) { st = 'win'; winT = 0; if (!playSong()) play('win'); }
@@ -292,7 +316,7 @@ function bedScene(x, y) {
 function pFrame() {
   if (P.dead) return 'sleep_8';
   if (P.nap > 0) return 'sleep_7';
-  const c = P.caf > 0;
+  const c = P.big;   // bigger coffee sprite follows the shield, not the caffeine meter
   if (!P.on) return c ? 'coffee_4' : P.vy < -3 ? 'jump_1' : P.vy < 2 ? 'jump_3' : 'jump_4';
   if (Math.abs(P.vx) > .6) {
     if (c) return 'coffee_' + (2 + (anim | 0) % 2);
@@ -334,7 +358,7 @@ function draw() {
   world(cx);
   if (st === 'play') {
     const px = P.x + P.w / 2 - cx, py = P.y + P.h, fl = (P.face < 0) === CONFIG.facesRight;
-    if (!(P.caf > 0 && P.caf < 120 && (T / 6 | 0) % 2)) { if (!sprite(pFrame(), px, py, fl)) { ctx.fillStyle = '#d33'; ctx.fillRect(P.x - cx, P.y, P.w, P.h); } }
+    if (!(P.caf > 0 && P.caf < 120 && (T / 6 | 0) % 2) && !(P.inv > 0 && (T / 4 | 0) % 2)) { if (!sprite(pFrame(), px, py, fl)) { ctx.fillStyle = '#d33'; ctx.fillRect(P.x - cx, P.y, P.w, P.h); } }
     if (P.nap > 0) for (let i = 0; i < 3; i++) text('Z', px + 14 + i * 14, py - 60 - ((T + i * 20) % 50), 14 + i * 5, '#fff');
     if (P.caf > 0) { ctx.fillStyle = '#0006'; ctx.fillRect(W / 2 - 80, 44, 160, 10); ctx.fillStyle = '#ffd34d'; ctx.fillRect(W / 2 - 80, 44, 160 * P.caf / 480, 10); text('CAFFEINATED', W / 2, 40, 12); }
     text('beans x' + beans, 20, 28, 18, '#fff', 'left'); text('flowers x' + flw, 190, 28, 18, '#fff', 'left'); text('naps x' + deaths, 360, 28, 18, '#fff', 'left'); if (muted) text('muted', W - 20, 28, 14, '#fff', 'right');

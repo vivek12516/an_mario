@@ -1,0 +1,4 @@
+Drop your clips here (mp3 / ogg / wav / m4a) and list the filenames in index.html under CONFIG.sounds.
+Events: start, jump, coin, item, power, crash, wake, bump, stomp, die, pit, flower, pause, win.
+Several files per event = a random one each time, e.g.  coin: ['sem.mp3','hmm.mp3','bwhahaha.mp3']
+No file for an event = retro beep.

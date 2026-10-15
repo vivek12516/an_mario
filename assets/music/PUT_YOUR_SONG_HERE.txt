@@ -1,0 +1,2 @@
+Put the ending song here (mp3/ogg) and set CONFIG.winMusic in index.html, e.g. winMusic: ['ending.mp3'].
+It plays when she reaches the bed. winMusicStart skips into the song (seconds).
